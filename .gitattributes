@@ -1,0 +1,5 @@
+# Star Citizen writes these with CRLF line endings and sometimes a UTF-8 BOM.
+# Tests check that rewriting keeps every byte it does not need to change,
+# so git must not convert them on checkout.
+crates/sc-core/tests/fixtures/** -text
+*.otf binary

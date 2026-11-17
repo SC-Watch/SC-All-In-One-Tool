@@ -1,0 +1,6 @@
+/target
+/dist
+# portable data folder created when running from the source tree
+/data
+/portable.txt
+/dist-licenses.html
