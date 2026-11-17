@@ -9,6 +9,9 @@ name: release
 on:
   push:
     tags: ["v*"]
+    # TEMPORARY: test builds of the first version before it is merged.
+    # Manual runs only work once this file is on main. Remove before merging.
+    branches: [first-version]
   workflow_dispatch:
 
 permissions:
