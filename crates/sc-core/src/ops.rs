@@ -74,8 +74,9 @@ pub fn joystick_state(data: &DataDir, channel: &Channel) -> JoystickState {
     let path = channel.actionmaps();
     if !path.exists() {
         state.problem = Some(format!(
-            "{} has no bindings file yet. Start the game once and open the keybinding screen.",
-            channel.name
+            "{} has no bindings file yet (looked for {}). Start the game once and open the keybinding screen.",
+            channel.name,
+            path.display()
         ));
         return state;
     }

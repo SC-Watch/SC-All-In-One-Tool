@@ -15,21 +15,45 @@ pub struct Channel {
 
 impl Channel {
     pub fn profile_dir(&self) -> PathBuf {
-        self.dir.join("USER").join("Client").join("0").join("Profiles").join("default")
+        resolve(&self.dir, &["USER", "Client", "0", "Profiles", "default"])
     }
     pub fn actionmaps(&self) -> PathBuf {
-        self.profile_dir().join("actionmaps.xml")
+        resolve(&self.profile_dir(), &["actionmaps.xml"])
     }
     pub fn attributes(&self) -> PathBuf {
-        self.profile_dir().join("attributes.xml")
+        resolve(&self.profile_dir(), &["attributes.xml"])
     }
     pub fn user_cfg(&self) -> PathBuf {
-        self.dir.join("user.cfg")
+        resolve(&self.dir, &["user.cfg"])
     }
     /// Where the game keeps layouts exported from its keybinding screen.
     pub fn mappings_dir(&self) -> PathBuf {
-        self.dir.join("USER").join("Client").join("0").join("Controls").join("Mappings")
+        resolve(&self.dir, &["USER", "Client", "0", "Controls", "Mappings"])
     }
+}
+
+/// Join `parts` onto `base`, using each name with whatever upper and lower
+/// case it has on disk. Windows ignores case, so the game's folders are
+/// spelled differently from one install or version to the next, but Linux
+/// (where the game runs under Wine) does not ignore it. Parts that do not
+/// exist yet are joined as given.
+pub fn resolve(base: &Path, parts: &[&str]) -> PathBuf {
+    let mut path = base.to_path_buf();
+    for part in parts {
+        let exact = path.join(part);
+        if exact.exists() {
+            path = exact;
+            continue;
+        }
+        let on_disk = std::fs::read_dir(&path).ok().and_then(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(part))
+                .map(|e| e.path())
+        });
+        path = on_disk.unwrap_or(exact);
+    }
+    path
 }
 
 const KNOWN_ORDER: [&str; 5] = ["LIVE", "PTU", "EPTU", "TECH-PREVIEW", "HOTFIX"];
@@ -44,7 +68,9 @@ pub fn channels(root: &Path) -> Vec<Channel> {
         .filter(|e| e.path().is_dir())
         .filter(|e| {
             let p = e.path();
-            p.join("USER").is_dir() || p.join("Bin64").is_dir() || p.join("Data.p4k").is_file()
+            resolve(&p, &["USER"]).is_dir()
+                || resolve(&p, &["Bin64"]).is_dir()
+                || resolve(&p, &["Data.p4k"]).is_file()
         })
         .map(|e| Channel { name: e.file_name().to_string_lossy().into_owned(), dir: e.path() })
         .collect();
@@ -68,7 +94,7 @@ pub fn normalise_root(picked: &Path) -> Option<PathBuf> {
     {
         return Some(parent.to_path_buf());
     }
-    let below = picked.join("StarCitizen");
+    let below = resolve(picked, &["StarCitizen"]);
     if !channels(&below).is_empty() {
         return Some(below);
     }
