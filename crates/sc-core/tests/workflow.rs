@@ -44,17 +44,17 @@ fn finds_the_install_from_any_nearby_folder() {
 
 #[test]
 fn folder_names_match_in_any_case() {
-    // Windows ignores case, so installs differ (`user\client\0` or
-    // `USER\Client\0`); on Linux under Wine the names must still be found.
+    // The current game writes `user/client/0`, older installs `USER/Client/0`;
+    // Windows does not care, and under Wine on Linux both must still be found.
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("StarCitizen");
-    let profile = root.join("LIVE").join("user").join("client").join("0").join("Profiles").join("default");
+    let profile = root.join("LIVE").join("USER").join("Client").join("0").join("PROFILES").join("Default");
     std::fs::create_dir_all(&profile).unwrap();
     std::fs::copy(fixture_path("actionmaps_live.xml"), profile.join("actionmaps.xml")).unwrap();
     std::fs::copy(fixture_path("user.cfg"), root.join("LIVE").join("USER.CFG")).unwrap();
 
     let channels = install::channels(&root);
-    assert_eq!(channels.len(), 1, "found through the lower-case user folder");
+    assert_eq!(channels.len(), 1, "found through the upper-case USER folder");
     let ch = &channels[0];
     assert_eq!(ch.actionmaps(), profile.join("actionmaps.xml"));
     assert!(ch.actionmaps().is_file());

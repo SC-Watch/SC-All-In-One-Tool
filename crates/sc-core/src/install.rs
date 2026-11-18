@@ -15,7 +15,7 @@ pub struct Channel {
 
 impl Channel {
     pub fn profile_dir(&self) -> PathBuf {
-        resolve(&self.dir, &["USER", "Client", "0", "Profiles", "default"])
+        resolve(&self.dir, &["user", "client", "0", "Profiles", "default"])
     }
     pub fn actionmaps(&self) -> PathBuf {
         resolve(&self.profile_dir(), &["actionmaps.xml"])
@@ -28,7 +28,7 @@ impl Channel {
     }
     /// Where the game keeps layouts exported from its keybinding screen.
     pub fn mappings_dir(&self) -> PathBuf {
-        resolve(&self.dir, &["USER", "Client", "0", "Controls", "Mappings"])
+        resolve(&self.dir, &["user", "client", "0", "Controls", "Mappings"])
     }
 }
 
@@ -36,7 +36,8 @@ impl Channel {
 /// case it has on disk. Windows ignores case, so the game's folders are
 /// spelled differently from one install or version to the next, but Linux
 /// (where the game runs under Wine) does not ignore it. Parts that do not
-/// exist yet are joined as given.
+/// exist yet are joined as given, so callers spell them the way the current
+/// game does (`user/client/0/Profiles/default`).
 pub fn resolve(base: &Path, parts: &[&str]) -> PathBuf {
     let mut path = base.to_path_buf();
     for part in parts {
@@ -68,7 +69,7 @@ pub fn channels(root: &Path) -> Vec<Channel> {
         .filter(|e| e.path().is_dir())
         .filter(|e| {
             let p = e.path();
-            resolve(&p, &["USER"]).is_dir()
+            resolve(&p, &["user"]).is_dir()
                 || resolve(&p, &["Bin64"]).is_dir()
                 || resolve(&p, &["Data.p4k"]).is_file()
         })
