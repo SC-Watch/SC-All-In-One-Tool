@@ -1,6 +1,7 @@
 //! The Key mapping page: JoyToKey-style stick buttons that hold keys or move
 //! the mouse.
 
+use crate::picker::{Kind, Purpose};
 use crate::theme::*;
 use crate::{App, Tone};
 use eframe::egui::{self, Align, Id, Layout, RichText, TextEdit, Ui, Vec2};
@@ -697,14 +698,15 @@ impl App {
     }
 
     fn import_joytokey(&mut self) {
-        let Some(path) = rfd::FileDialog::new()
-            .set_title("Choose a JoyToKey profile")
-            .add_filter("JoyToKey profile", &["cfg"])
-            .pick_file()
-        else {
-            return;
-        };
-        let text = match std::fs::read_to_string(&path) {
+        self.pick(
+            Purpose::ImportJoyToKey,
+            "Choose a JoyToKey profile",
+            Kind::File(Some(("JoyToKey profile", &["cfg"]))),
+        );
+    }
+
+    pub fn import_joytokey_file(&mut self, path: &std::path::Path) {
+        let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
             Err(e) => {
                 self.say(format!("Could not read {}: {e}", path.display()), Tone::Bad);

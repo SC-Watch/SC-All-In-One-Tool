@@ -6,6 +6,7 @@
 
 mod keys_page;
 mod pages;
+mod picker;
 mod theme;
 
 use eframe::egui::{self, Align, Color32, Frame, Layout, Margin, RichText, Stroke};
@@ -61,6 +62,9 @@ pub struct App {
     config_dirty: Option<Instant>,
 
     pub keys: keys_page::KeysState,
+    /// A file or folder dialog that is open.
+    picker: Option<picker::Pending>,
+    ctx: egui::Context,
 
     game_running: Arc<AtomicBool>,
     message: Option<(String, Tone, Instant)>,
@@ -115,6 +119,8 @@ impl App {
             add_path: String::new(),
             config_dirty: None,
             keys,
+            picker: None,
+            ctx: cc.egui_ctx.clone(),
             game_running,
             message: None,
         };
@@ -196,6 +202,7 @@ impl App {
 
     fn housekeeping(&mut self, ctx: &egui::Context) {
         self.keys_housekeeping(ctx);
+        self.poll_picker();
         if let Some(t) = self.config_dirty {
             if t.elapsed() > Duration::from_millis(800) {
                 self.save_config();
@@ -214,6 +221,34 @@ impl App {
             }
         }
         ctx.request_repaint_after(Duration::from_secs(2));
+    }
+
+    /// Open a file or folder dialog without stopping the window. Only one
+    /// at a time; the result arrives in `picked`.
+    pub fn pick(&mut self, purpose: picker::Purpose, title: &str, kind: picker::Kind) {
+        if self.picker.is_none() {
+            self.picker = Some(picker::open(&self.ctx, purpose, title, kind));
+        }
+    }
+
+    fn poll_picker(&mut self) {
+        let Some(result) = self.picker.as_ref().and_then(|p| p.poll()) else { return };
+        let purpose = self.picker.take().expect("checked").purpose;
+        let Some(path) = result else { return };
+        match purpose {
+            picker::Purpose::ImportJoyToKey => self.import_joytokey_file(&path),
+            picker::Purpose::AddProgram => {
+                self.config.launch.push(sc_core::launch::LaunchItem::new(&path.to_string_lossy()));
+                self.save_config();
+            }
+            picker::Purpose::BrowseProgram(i) => {
+                if let Some(item) = self.config.launch.get_mut(i) {
+                    item.target = path.to_string_lossy().into_owned();
+                    self.save_config();
+                }
+            }
+            picker::Purpose::AddInstall => self.add_install(path),
+        }
     }
 
     pub fn moved_count(&self) -> usize {

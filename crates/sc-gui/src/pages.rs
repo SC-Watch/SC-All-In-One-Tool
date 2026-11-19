@@ -1,5 +1,6 @@
 //! The four pages and the dialogs.
 
+use crate::picker::{Kind, Purpose};
 use crate::theme::*;
 use crate::{App, Page, RowExt, Tone};
 use eframe::egui::{self, Align, Id, Layout, RichText, TextEdit, Ui, Vec2};
@@ -424,11 +425,8 @@ impl App {
                     self.say(format!("Some did not start. {}", names.join("; ")), Tone::Bad);
                 }
             }
-            if button(ui, "Add program…").clicked()
-                && let Some(path) = rfd::FileDialog::new().set_title("Choose a program to launch").pick_file()
-            {
-                self.config.launch.push(LaunchItem::new(&path.to_string_lossy()));
-                self.save_config();
+            if button(ui, "Add program…").clicked() {
+                self.pick(Purpose::AddProgram, "Choose a program to launch", Kind::File(None));
             }
             if button(ui, "Add link or command").clicked() {
                 self.config.launch.push(LaunchItem {
@@ -450,6 +448,7 @@ impl App {
 
         let mut remove = None;
         let mut start = None;
+        let mut browse = None;
         let mut changed = false;
         for (i, item) in self.config.launch.iter_mut().enumerate() {
             card(ui, |ui| {
@@ -483,11 +482,8 @@ impl App {
                                     .desired_width(ui.available_width() - 100.0),
                             )
                             .changed();
-                        if ui.button("Browse…").clicked()
-                            && let Some(p) = rfd::FileDialog::new().pick_file()
-                        {
-                            item.target = p.to_string_lossy().into_owned();
-                            changed = true;
+                        if ui.button("Browse…").clicked() {
+                            browse = Some(i);
                         }
                     });
                     ui.end_row();
@@ -507,6 +503,9 @@ impl App {
         }
         if changed {
             self.config_changed();
+        }
+        if let Some(i) = browse {
+            self.pick(Purpose::BrowseProgram(i), "Choose a program to launch", Kind::File(None));
         }
         if let Some(i) = start {
             let item = self.config.launch[i].clone();
@@ -565,11 +564,8 @@ impl App {
             }
             ui.separator();
             ui.horizontal(|ui| {
-                if button(ui, "Add folder…").clicked()
-                    && let Some(p) =
-                        rfd::FileDialog::new().set_title("Choose your StarCitizen folder").pick_folder()
-                {
-                    add = Some(p);
+                if button(ui, "Add folder…").clicked() {
+                    self.pick(Purpose::AddInstall, "Choose your StarCitizen folder", Kind::Folder);
                 }
                 ui.add(
                     TextEdit::singleline(&mut self.add_path)
@@ -597,22 +593,7 @@ impl App {
             self.rescan();
         }
         if let Some(picked) = add {
-            match install::normalise_root(&picked) {
-                Some(root) => {
-                    if !self.config.installs.contains(&root) {
-                        self.config.installs.push(root.clone());
-                    }
-                    self.add_path.clear();
-                    self.save_config();
-                    self.rescan();
-                    if let Some(first) = install::channels(&root).into_iter().next() {
-                        self.select(first);
-                    }
-                    self.say(format!("Added {}.", root.display()), Tone::Good);
-                }
-                None => self
-                    .say(format!("No Star Citizen game versions found in {}.", picked.display()), Tone::Bad),
-            }
+            self.add_install(picked);
         }
 
         ui.add_space(16.0);
@@ -637,6 +618,27 @@ impl App {
                 "Not affiliated with Cloud Imperium Games or Roberts Space Industries. It only edits the settings files the game's own options menus write.",
             ).small());
         });
+    }
+
+    /// Add a Star Citizen folder picked or typed in Settings.
+    pub fn add_install(&mut self, picked: PathBuf) {
+        match install::normalise_root(&picked) {
+            Some(root) => {
+                if !self.config.installs.contains(&root) {
+                    self.config.installs.push(root.clone());
+                }
+                self.add_path.clear();
+                self.save_config();
+                self.rescan();
+                if let Some(first) = install::channels(&root).into_iter().next() {
+                    self.select(first);
+                }
+                self.say(format!("Added {}.", root.display()), Tone::Good);
+            }
+            None => {
+                self.say(format!("No Star Citizen game versions found in {}.", picked.display()), Tone::Bad)
+            }
+        }
     }
 
     // ---------------------------------------------------------------- Dialogs
