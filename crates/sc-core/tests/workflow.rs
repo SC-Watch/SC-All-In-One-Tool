@@ -62,7 +62,7 @@ fn folder_names_match_in_any_case() {
     assert_eq!(lower(ch.actionmaps()), lower(profile.join("actionmaps.xml")));
     assert!(ch.actionmaps().is_file());
     assert!(ch.user_cfg().is_file());
-    assert_eq!(install::normalise_root(&tmp.path().join("starcitizen")), None, "missing stays missing");
+    assert_eq!(install::normalise_root(&tmp.path().join("NoSuchFolder")), None, "missing stays missing");
     assert_eq!(install::normalise_root(tmp.path()), Some(root.clone()));
 
     let data = DataDir::at(tmp.path().join("data"));
