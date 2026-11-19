@@ -56,7 +56,10 @@ fn folder_names_match_in_any_case() {
     let channels = install::channels(&root);
     assert_eq!(channels.len(), 1, "found through the upper-case USER folder");
     let ch = &channels[0];
-    assert_eq!(ch.actionmaps(), profile.join("actionmaps.xml"));
+    // Windows keeps the app's spelling (it finds the file either way), so
+    // compare ignoring case.
+    let lower = |p: PathBuf| p.to_string_lossy().to_lowercase();
+    assert_eq!(lower(ch.actionmaps()), lower(profile.join("actionmaps.xml")));
     assert!(ch.actionmaps().is_file());
     assert!(ch.user_cfg().is_file());
     assert_eq!(install::normalise_root(&tmp.path().join("starcitizen")), None, "missing stays missing");
