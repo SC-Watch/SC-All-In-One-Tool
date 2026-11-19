@@ -3,15 +3,13 @@
 #   git tag v0.1.0 && git push origin v0.1.0
 #
 # The tag must match the version in Cargo.toml. Run it by hand from the
-# Actions tab to get the builds as artifacts without making a release.
+# Actions tab, on any branch, to get test builds as artifacts without making
+# a release.
 name: release
 
 on:
   push:
     tags: ["v*"]
-    # TEMPORARY: test builds of the first version before it is merged.
-    # Manual runs only work once this file is on main. Remove before merging.
-    branches: [first-version]
   workflow_dispatch:
 
 permissions:
