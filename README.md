@@ -1,6 +1,6 @@
 # SC All-In-One
 
-A small, free tool for Star Citizen pilots, for Windows and Linux. It does three things:
+A small, free tool for Star Citizen pilots, for Windows and Linux. It does four things:
 
 - **Joysticks.** Star Citizen numbers your sticks, throttles and pedals (js1, js2, …) in the order Windows
   lists them, and that order can change after switching USB ports or replugging a device. Your bindings stay
@@ -11,6 +11,10 @@ A small, free tool for Star Citizen pilots, for Windows and Linux. It does three
   game version (LIVE, PTU, …). A profile holds your bindings with each device's saturation, deadzones,
   curves and inverts; your graphics, display and other settings; and `user.cfg`. Restore only the parts you
   want: graphics without audio, say. Bindings are moved to whatever numbers your devices have today.
+- **Key mapping.** Make stick buttons hold keys or move the mouse, like JoyToKey, so you need one program
+  fewer. Mostly used to hold a modifier such as Right Ctrl from a stick button, for bindings like
+  `js3_rctrl+button21`. Import your JoyToKey profiles to start from your existing setup. Linux for now;
+  Windows is next.
 - **Launch with.** Start TrackIR, JoyToKey, OBS, the RSI Launcher or anything else together, with one click.
 
 It works with any device the game sees: VKB, Virpil, Thrustmaster, Winwing, Logitech and the rest.
@@ -62,6 +66,24 @@ one of them its own ID in its maker's configuration tool (VKBDevCfg, VPC Configu
 Every change is checked against the game running and backed up first. The newest 40 backups are kept in
 `data/backups`.
 
+## Key mapping
+
+On the **Key mapping** page, **Import JoyToKey profile…** reads a JoyToKey `.cfg`: keys (up to four at once,
+such as Right Ctrl + R), mouse movement and scrolling. Anything else, such as launching a program, is listed
+as not imported.
+
+JoyToKey numbers sticks in its own order and its profiles do not say which stick is which, so match each one
+to its device: press **Identify…** on a stick and then any button on it. Then press **Start**, and keep the app
+open while you play. The sticks are only read, never taken over, so the game still sees every button press,
+just as with JoyToKey.
+
+**What the tool reads** shows each press with its button number. These should match the game's: binding a
+button in Star Citizen shows the same number (`js3_button21` is button 21).
+
+On Linux the keys and mouse movement go through a virtual keyboard and mouse, which needs permission to
+use `/dev/uinput`. If the app says it does not have it, it shows a one-line command to fix that; run it in a
+terminal and restart the computer.
+
 ## Command line
 
 `sc-aio-cli` does the same from a terminal or a desktop shortcut:
@@ -74,6 +96,10 @@ sc-aio-cli profile list
 sc-aio-cli profile save "Gunfighters"
 sc-aio-cli profile restore "Gunfighters" --parts controls,graphics,display
 sc-aio-cli launch                        start every enabled "Launch with" program
+sc-aio-cli keys import Gunfighter.cfg    import a JoyToKey profile
+sc-aio-cli keys list
+sc-aio-cli keys watch                    show button and hat presses as the tool reads them
+sc-aio-cli keys run ["name"]             run a key mapping until Ctrl+C
 ```
 
 Add `--channel PTU` to work on another game version, `--install <folder>` if the game is not found, and

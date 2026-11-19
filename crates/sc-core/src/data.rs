@@ -78,6 +78,10 @@ pub struct Config {
     pub selected_channel: Option<String>,
     /// Programs to start with "Launch all".
     pub launch: Vec<LaunchItem>,
+    /// The key mapping in use.
+    pub key_mapping: Option<String>,
+    /// Start key mapping when the app opens.
+    pub key_mapping_autostart: bool,
 }
 
 impl Config {

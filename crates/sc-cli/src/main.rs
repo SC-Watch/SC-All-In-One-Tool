@@ -51,6 +51,27 @@ enum Command {
     Profile(ProfileCommand),
     /// Start every enabled "Launch with" program.
     Launch,
+    /// Key mapping: stick buttons that hold keys or move the mouse.
+    #[command(subcommand)]
+    Keys(KeysCommand),
+}
+
+#[derive(Subcommand)]
+enum KeysCommand {
+    /// List key mappings.
+    List,
+    /// Import a JoyToKey profile (.cfg).
+    Import {
+        file: PathBuf,
+        /// Name for the mapping; defaults to the file name.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Show each button and hat press as the tool reads it, without sending
+    /// anything. Compare the numbers with the game's. Ctrl+C to stop.
+    Watch,
+    /// Run a key mapping until Ctrl+C. Defaults to the one picked in the app.
+    Run { name: Option<String> },
 }
 
 #[derive(Subcommand)]
@@ -133,6 +154,7 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
         Command::Profile(cmd) => profile(&data, cmd, channel),
+        Command::Keys(cmd) => keys(&data, &config, cmd),
         Command::Launch => {
             let enabled = config.launch.iter().filter(|i| i.enabled).count();
             if enabled == 0 {
@@ -147,6 +169,111 @@ fn run(cli: Cli) -> Result<()> {
             Ok(())
         }
     }
+}
+
+fn keys(data: &DataDir, config: &Config, cmd: KeysCommand) -> Result<()> {
+    use sc_core::keyemu::Runner;
+    use sc_core::keymap;
+    match cmd {
+        KeysCommand::List => {
+            let all = keymap::list(data)?;
+            if all.is_empty() {
+                println!("No key mappings yet. Import one with: sc-aio-cli keys import <file.cfg>");
+            }
+            for p in all {
+                let active = config.key_mapping.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&p.name));
+                println!("{}{}", p.name, if active { "  (in use)" } else { "" });
+                for stick in &p.sticks {
+                    let assigned =
+                        if stick.device.is_some() { "" } else { "  [not assigned to a device yet]" };
+                    println!("  {}{assigned}", stick.title());
+                    for m in &stick.mappings {
+                        println!("    {:18} {}", m.input.label(), m.action.label());
+                    }
+                }
+            }
+            Ok(())
+        }
+        KeysCommand::Import { file, name } => {
+            let text = std::fs::read_to_string(&file)
+                .with_context(|| format!("could not read {}", file.display()))?;
+            let name = name.unwrap_or_else(|| {
+                file.file_stem()
+                    .map(|s| s.to_string_lossy().replace('_', " "))
+                    .unwrap_or_else(|| "Imported".into())
+            });
+            if keymap::load(data, &name).is_ok() {
+                anyhow::bail!(
+                    "a key mapping called \"{name}\" already exists; pass --name to choose another"
+                );
+            }
+            let import = keymap::import_joytokey(&name, &text)?;
+            keymap::save(data, &import.profile)?;
+            println!(
+                "Imported \"{name}\": {} mappings on {} sticks.",
+                import.profile.mapping_count(),
+                import.profile.sticks.len()
+            );
+            for s in &import.skipped {
+                println!("  skipped: {s}");
+            }
+            println!("Next, tell the app which stick is which on its Key mapping page.");
+            Ok(())
+        }
+        KeysCommand::Watch => {
+            let runner = Runner::start(keymap::KeyProfile::new("watch"), false)?;
+            follow(&runner, "Press buttons or move hats on your sticks. Ctrl+C to stop.")
+        }
+        KeysCommand::Run { name } => {
+            let name = name
+                .or_else(|| config.key_mapping.clone())
+                .context("no key mapping picked; pass its name (see `sc-aio-cli keys list`)")?;
+            let profile = keymap::load(data, &name)?;
+            let runner = Runner::start(profile, true)?;
+            follow(&runner, &format!("Running \"{name}\". Ctrl+C to stop."))
+        }
+    }
+}
+
+/// Print the sticks found and every press until the process is stopped.
+fn follow(runner: &sc_core::keyemu::Runner, intro: &str) -> Result<()> {
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let status = runner.status();
+    if let Some(e) = &status.error {
+        anyhow::bail!("{e}");
+    }
+    if status.sticks.is_empty() {
+        println!("No sticks found. If they are plugged in, your user may not be allowed to read them.");
+    }
+    for s in &status.sticks {
+        let used = match s.profile_stick {
+            Some(_) => "  (mapped)",
+            None => "",
+        };
+        println!(
+            "Found {} ({}), {} buttons, {} hats{used}",
+            s.device.name,
+            s.device.hardware_label(),
+            s.buttons,
+            s.hats
+        );
+    }
+    println!("{intro}");
+    let mut last = std::time::Instant::now();
+    while runner.is_running() {
+        let status = runner.status();
+        for seen in status.recent.iter().rev().filter(|s| s.at > last) {
+            println!("  {}: {}", seen.device.name, seen.input.label());
+        }
+        if let Some(newest) = status.recent.front() {
+            last = last.max(newest.at);
+        }
+        if let Some(e) = status.error {
+            anyhow::bail!("{e}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    Ok(())
 }
 
 fn status(data: &DataDir, config: &Config, ch: &sc_core::install::Channel) -> Result<()> {

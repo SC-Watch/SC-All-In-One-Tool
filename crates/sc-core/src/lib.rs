@@ -15,7 +15,11 @@ pub mod fsutil;
 pub mod game;
 pub mod install;
 pub mod joysticks;
+pub mod keyemu;
+pub mod keymap;
+pub mod keys;
 pub mod launch;
+pub mod mapper;
 pub mod ops;
 pub mod profiles;
 

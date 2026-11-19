@@ -4,6 +4,7 @@
 //! SC All-In-One: save and restore Star Citizen settings profiles, keep
 //! joystick bindings on the right devices, and start companion apps.
 
+mod keys_page;
 mod pages;
 mod theme;
 
@@ -24,6 +25,7 @@ use theme::*;
 pub enum Page {
     Joysticks,
     Profiles,
+    Keys,
     Launch,
     Settings,
 }
@@ -58,6 +60,8 @@ pub struct App {
     pub add_path: String,
     config_dirty: Option<Instant>,
 
+    pub keys: keys_page::KeysState,
+
     game_running: Arc<AtomicBool>,
     message: Option<(String, Tone, Instant)>,
 }
@@ -91,6 +95,7 @@ impl App {
             });
         }
 
+        let (keys, keys_error) = keys_page::KeysState::load(&data);
         let mut app = App {
             data,
             config,
@@ -109,13 +114,17 @@ impl App {
             confirm_replace: None,
             add_path: String::new(),
             config_dirty: None,
+            keys,
             game_running,
             message: None,
         };
         app.rescan();
         app.reload_profiles();
-        if let Some(e) = startup_error.or(config_error) {
+        if let Some(e) = startup_error.or(config_error).or(keys_error) {
             app.say(e, Tone::Bad);
+        }
+        if app.config.key_mapping_autostart && sc_core::keyemu::SUPPORTED {
+            app.start_keys();
         }
         app
     }
@@ -186,6 +195,7 @@ impl App {
     }
 
     fn housekeeping(&mut self, ctx: &egui::Context) {
+        self.keys_housekeeping(ctx);
         if let Some(t) = self.config_dirty {
             if t.elapsed() > Duration::from_millis(800) {
                 self.save_config();
@@ -243,11 +253,13 @@ impl eframe::App for App {
                     Page::Joysticks => self.joysticks_page(ui),
                     Page::Profiles => self.profiles_page(ui),
                     Page::Launch => self.launch_page(ui),
+                    Page::Keys => self.keys_page(ui),
                     Page::Settings => self.settings_page(ui),
                 });
             },
         );
         self.dialogs(&ctx);
+        self.keys_dialogs(&ctx);
     }
 }
 
@@ -320,9 +332,11 @@ impl App {
                 ui.add_space(6.0);
                 let moved = self.moved_count();
                 let badge = (moved > 0).then(|| (moved.to_string(), AMBER));
+                let keys_badge = self.keys.is_on().then(|| ("ON".to_string(), GREEN));
                 let items = [
                     (Page::Joysticks, "🎮", "Joysticks", badge),
                     (Page::Profiles, "🗁", "Profiles", None),
+                    (Page::Keys, "⌨", "Key mapping", keys_badge),
                     (Page::Launch, "🚀", "Launch with", None),
                     (Page::Settings, "⚙", "Settings", None),
                 ];
@@ -365,7 +379,10 @@ impl App {
             )
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(text).color(Color32::WHITE));
+                    ui.scope(|ui| {
+                        ui.set_max_width(ui.available_width() - 40.0);
+                        ui.add(egui::Label::new(RichText::new(text).color(Color32::WHITE)).wrap());
+                    });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.small_button("✕").clicked() {
                             self.message = None;
