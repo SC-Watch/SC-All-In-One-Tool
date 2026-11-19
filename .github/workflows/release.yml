@@ -1,0 +1,92 @@
+# Build the portable folders and publish them as a draft GitHub Release:
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# The tag must match the version in Cargo.toml. Run it by hand from the
+# Actions tab, on any branch, to get test builds as artifacts without making
+# a release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          echo "tag=$tag  Cargo.toml=$version"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::tag v$tag does not match the version in Cargo.toml ($version)"
+            exit 1
+          fi
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Build
+        run: cargo build --release --locked -p sc-gui -p sc-cli
+
+      - name: List third-party licences
+        shell: bash
+        run: |
+          cargo install cargo-about --locked --features cli
+          cargo about generate --workspace about.hbs -o dist-licenses.html
+
+      - name: Package
+        shell: bash
+        run: scripts/package.sh
+
+      - name: Smoke-test the build
+        shell: bash
+        run: |
+          cd dist/sc-aio
+          ./sc-aio-cli --version
+          test -f portable.txt
+          test -f licenses/third-party.html
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sc-aio-${{ runner.os }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect the builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir builds
+
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --generate-notes \
+            --title "SC All-In-One $GITHUB_REF_NAME" builds/*/*
