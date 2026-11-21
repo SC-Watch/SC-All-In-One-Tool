@@ -18,9 +18,10 @@ pub enum Output {
         dy: i32,
     },
     /// Mouse wheel; positive scrolls up. `hi_res` is in 1/120ths of a click
-    /// (Windows' wheel units, and Linux's high-resolution ones), for smooth
-    /// scrolling; `clicks` is how many whole clicks that completes, for
-    /// programs that only understand whole clicks.
+    /// (Linux's high-resolution wheel units), for programs that scroll
+    /// smoothly; `clicks` is how many whole clicks that completes, for
+    /// programs that only understand whole clicks (and on Windows, where
+    /// many programs drop anything smaller).
     Wheel {
         hi_res: i32,
         clicks: i32,

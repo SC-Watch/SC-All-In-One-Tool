@@ -80,7 +80,8 @@ just as with JoyToKey.
 button in Star Citizen shows the same number (`js3_button21` is button 21).
 
 **Mouse speed** and **Scroll speed** set how fast held mouse and scroll mappings go. A tap on a scroll
-mapping turns the wheel one click; held, it scrolls smoothly.
+mapping turns the wheel one click; held, it keeps scrolling at that speed (on Linux in fine steps too, for
+programs that scroll smoothly).
 
 On Windows the sticks are read with Raw Input, which works while the game has the focus, and keys are sent
 as scan codes. On Linux the keys and mouse movement go through a virtual keyboard and mouse, which needs

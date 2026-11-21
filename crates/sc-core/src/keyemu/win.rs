@@ -20,8 +20,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use windows_sys::Win32::Devices::HumanInterfaceDevice::{
-    HIDP_CAPS, HIDP_STATUS_SUCCESS, HIDP_VALUE_CAPS, HidD_GetProductString, HidP_GetCaps, HidP_GetUsageValue,
-    HidP_GetUsages, HidP_GetValueCaps, HidP_Input, HidP_MaxUsageListLength, PHIDP_PREPARSED_DATA,
+    HIDP_BUTTON_CAPS, HIDP_CAPS, HIDP_STATUS_SUCCESS, HIDP_VALUE_CAPS, HidD_GetProductString,
+    HidP_GetButtonCaps, HidP_GetCaps, HidP_GetUsageValue, HidP_GetUsages, HidP_GetValueCaps, HidP_Input,
+    HidP_MaxUsageListLength, PHIDP_PREPARSED_DATA,
 };
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, HWND, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::Storage::FileSystem::{
@@ -72,6 +73,10 @@ struct Dev {
     /// HID preparsed data, kept 8-byte aligned.
     preparsed: Vec<u64>,
     max_buttons: u32,
+    /// Which buttons each input report carries, by report ID (0 when the
+    /// device does not number its reports).
+    report_buttons: HashMap<u8, BTreeSet<u16>>,
+    numbered_reports: bool,
     hats: Vec<Hat>,
     pressed: BTreeSet<u16>,
     hat_dirs: Vec<Option<HatDir>>,
@@ -186,6 +191,26 @@ unsafe fn open_device(h: HANDLE, profile: &KeyProfile) -> Option<Dev> {
     }
     let max_buttons = unsafe { HidP_MaxUsageListLength(HidP_Input, PAGE_BUTTON, pp) };
 
+    let mut count = caps.NumberInputButtonCaps;
+    let mut buttons: Vec<HIDP_BUTTON_CAPS> = vec![unsafe { zeroed() }; count as usize];
+    let mut report_buttons: HashMap<u8, BTreeSet<u16>> = HashMap::new();
+    if count > 0
+        && unsafe { HidP_GetButtonCaps(HidP_Input, buttons.as_mut_ptr(), &mut count, pp) }
+            == HIDP_STATUS_SUCCESS
+    {
+        for b in buttons[..count as usize].iter().filter(|b| b.UsagePage == PAGE_BUTTON) {
+            let (lo, hi) = unsafe {
+                if b.IsRange {
+                    (b.Anonymous.Range.UsageMin, b.Anonymous.Range.UsageMax)
+                } else {
+                    (b.Anonymous.NotRange.Usage, b.Anonymous.NotRange.Usage)
+                }
+            };
+            report_buttons.entry(b.ReportID).or_default().extend(lo..=hi);
+        }
+    }
+    let numbered_reports = report_buttons.keys().any(|id| *id != 0);
+
     let mut count = caps.NumberInputValueCaps;
     let mut values: Vec<HIDP_VALUE_CAPS> = vec![unsafe { zeroed() }; count as usize];
     let mut hats = Vec::new();
@@ -213,6 +238,8 @@ unsafe fn open_device(h: HANDLE, profile: &KeyProfile) -> Option<Dev> {
         id,
         preparsed,
         max_buttons,
+        report_buttons,
+        numbered_reports,
         hat_dirs: vec![None; hats.len()],
         hats,
         pressed: BTreeSet::new(),
@@ -328,15 +355,15 @@ unsafe fn changes(dev: &mut Dev, report: &mut [u8]) -> Vec<Change> {
             report.len() as u32,
         )
     } == HIDP_STATUS_SUCCESS;
-    if ok {
+    // Only the buttons this report carries can change; the rest keep their
+    // state (otherwise a stick that splits its buttons over several reports
+    // would seem to let go of held buttons between them).
+    let report_id = if dev.numbered_reports { report.first().copied().unwrap_or(0) } else { 0 };
+    if ok && let Some(in_report) = dev.report_buttons.get(&report_id) {
         let now: BTreeSet<u16> = usages[..len as usize].iter().copied().collect();
-        for b in dev.pressed.difference(&now) {
-            out.push(Change::Button(*b, false));
+        for (button, pressed) in super::report_button_changes(&mut dev.pressed, in_report, &now) {
+            out.push(Change::Button(button, pressed));
         }
-        for b in now.difference(&dev.pressed) {
-            out.push(Change::Button(*b, true));
-        }
-        dev.pressed = now;
     }
     for (i, hat) in dev.hats.iter().enumerate() {
         let mut value = 0u32;
@@ -533,8 +560,9 @@ unsafe fn send(out: &[Output]) {
                 mx += dx;
                 my += dy;
             }
-            // Windows wheel units are 1/120 of a click already.
-            Output::Wheel { hi_res, .. } => wheel += hi_res,
+            // Whole clicks only: many Windows programs, games included, act
+            // only on full 120-unit steps and drop smaller ones.
+            Output::Wheel { clicks, .. } => wheel += clicks * crate::mapper::WHEEL_CLICK,
         }
     }
     if mx != 0 || my != 0 {

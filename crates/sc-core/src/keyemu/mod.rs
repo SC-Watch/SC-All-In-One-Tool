@@ -89,6 +89,25 @@ impl Status {
     }
 }
 
+/// Button changes from one HID report. Sticks can spread their buttons over
+/// several reports (report IDs); a report says nothing about buttons that
+/// are not in it, so only `in_report`'s buttons are compared: the others keep
+/// their state. Returns (button, pressed) for each change.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn report_button_changes(
+    pressed: &mut std::collections::BTreeSet<u16>,
+    in_report: &std::collections::BTreeSet<u16>,
+    now: &std::collections::BTreeSet<u16>,
+) -> Vec<(u16, bool)> {
+    let before: std::collections::BTreeSet<u16> = pressed.intersection(in_report).copied().collect();
+    let now: std::collections::BTreeSet<u16> = now.intersection(in_report).copied().collect();
+    let mut out: Vec<(u16, bool)> = before.difference(&now).map(|b| (*b, false)).collect();
+    out.extend(now.difference(&before).map(|b| (*b, true)));
+    pressed.retain(|b| !in_report.contains(b));
+    pressed.extend(now);
+    out
+}
+
 /// Whether a device the system lists is the one a profile stick names.
 /// Matched on USB vendor and product IDs where both have them, since the
 /// names Windows, the game and Linux report differ.
@@ -159,6 +178,22 @@ impl Drop for Runner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_report_without_a_button_does_not_release_it() {
+        use std::collections::BTreeSet;
+        let set = |v: &[u16]| v.iter().copied().collect::<BTreeSet<u16>>();
+        // Buttons 1-16 in one report, 17-32 in another.
+        let (low, high) = (set(&(1..=16).collect::<Vec<_>>()), set(&(17..=32).collect::<Vec<_>>()));
+        let mut pressed = BTreeSet::new();
+        assert_eq!(report_button_changes(&mut pressed, &high, &set(&[21])), vec![(21, true)]);
+        // The other report arrives, with nothing pressed in it: 21 stays held.
+        assert_eq!(report_button_changes(&mut pressed, &low, &set(&[])), vec![]);
+        assert_eq!(report_button_changes(&mut pressed, &low, &set(&[5])), vec![(5, true)]);
+        assert_eq!(pressed, set(&[5, 21]));
+        assert_eq!(report_button_changes(&mut pressed, &high, &set(&[])), vec![(21, false)]);
+        assert_eq!(pressed, set(&[5]));
+    }
 
     #[test]
     fn devices_match_on_usb_ids_not_names() {
