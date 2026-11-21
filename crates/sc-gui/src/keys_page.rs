@@ -216,10 +216,7 @@ impl App {
 
         if !keyemu::SUPPORTED {
             card(ui, |ui| {
-                ui.label(
-                    RichText::new("Key mapping runs on Linux and Windows only.")
-                        .color(AMBER),
-                );
+                ui.label(RichText::new("Key mapping runs on Linux and Windows only.").color(AMBER));
                 ui.label(weak("You can import and edit mappings here already."));
             });
             ui.add_space(12.0);
