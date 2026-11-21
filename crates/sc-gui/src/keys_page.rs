@@ -217,7 +217,7 @@ impl App {
         if !keyemu::SUPPORTED {
             card(ui, |ui| {
                 ui.label(
-                    RichText::new("Key mapping runs on Linux for now; Windows support is the next step.")
+                    RichText::new("Key mapping runs on Linux and Windows only.")
                         .color(AMBER),
                 );
                 ui.label(weak("You can import and edit mappings here already."));
@@ -301,7 +301,7 @@ impl App {
                     } else {
                         let start =
                             ui.add_enabled_ui(keyemu::SUPPORTED, |ui| primary_button(ui, "Start")).inner;
-                        if start.on_disabled_hover_text("Runs on Linux for now.").clicked() {
+                        if start.on_disabled_hover_text("Not available on this system.").clicked() {
                             todo.push(Do::Start);
                         }
                     }

@@ -2,8 +2,9 @@
 //! movement. The sticks are only read, never taken over, so the game still
 //! sees every button press, as with JoyToKey.
 //!
-//! Linux for now: sticks are read through evdev and keys and mouse movement
-//! are sent through a virtual keyboard and mouse (uinput).
+//! On Linux sticks are read through evdev, and keys and mouse movement are
+//! sent through a virtual keyboard and mouse (uinput). On Windows sticks are
+//! read through Raw Input and keys and mouse are sent with SendInput.
 
 use crate::device::DeviceId;
 use crate::keymap::{Input, KeyProfile};
@@ -15,9 +16,15 @@ use std::time::Instant;
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+use linux as platform;
+#[cfg(windows)]
+mod win;
+#[cfg(windows)]
+use win as platform;
 
-/// Whether key mapping can run on this system yet.
-pub const SUPPORTED: bool = cfg!(target_os = "linux");
+/// Whether key mapping can run on this system.
+pub const SUPPORTED: bool = cfg!(any(target_os = "linux", windows));
 
 /// A one-line fix for Linux systems where users may not use /dev/uinput:
 /// let the logged-in user use it, as Steam and similar tools do.
@@ -71,11 +78,11 @@ pub struct Status {
     pub error: Option<String>,
 }
 
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
 const RECENT: usize = 12;
 
 impl Status {
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[cfg_attr(not(any(target_os = "linux", windows)), allow(dead_code))]
     fn saw(&mut self, seen: Seen) {
         self.recent.push_front(seen);
         self.recent.truncate(RECENT);
@@ -107,19 +114,19 @@ impl Runner {
     pub fn start(profile: KeyProfile, send: bool) -> anyhow::Result<Runner> {
         let stop = Arc::new(AtomicBool::new(false));
         let status = Arc::new(Mutex::new(Status { running: true, sending: send, ..Default::default() }));
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", windows))]
         {
             let (s, st) = (stop.clone(), status.clone());
-            let ready = linux::prepare(send)?;
+            let ready = platform::prepare(send)?;
             let thread = std::thread::Builder::new()
                 .name("key-mapping".into())
-                .spawn(move || linux::run(profile, ready, s, st))?;
+                .spawn(move || platform::run(profile, ready, s, st))?;
             Ok(Runner { stop, status, thread: Some(thread) })
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(any(target_os = "linux", windows)))]
         {
             let _ = (profile, send, stop, status);
-            anyhow::bail!("Key mapping runs on Linux for now; Windows support is the next step.")
+            anyhow::bail!("Key mapping runs on Linux and Windows only.")
         }
     }
 

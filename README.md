@@ -13,8 +13,7 @@ A small, free tool for Star Citizen pilots, for Windows and Linux. It does four 
   want: graphics without audio, say. Bindings are moved to whatever numbers your devices have today.
 - **Key mapping.** Make stick buttons hold keys or move the mouse, like JoyToKey, so you need one program
   fewer. Mostly used to hold a modifier such as Right Ctrl from a stick button, for bindings like
-  `js3_rctrl+button21`. Import your JoyToKey profiles to start from your existing setup. Linux for now;
-  Windows is next.
+  `js3_rctrl+button21`. Import your JoyToKey profiles to start from your existing setup.
 - **Launch with.** Start TrackIR, JoyToKey, OBS, the RSI Launcher or anything else together, with one click.
 
 It works with any device the game sees: VKB, Virpil, Thrustmaster, Winwing, Logitech and the rest.
@@ -80,9 +79,13 @@ just as with JoyToKey.
 **What the tool reads** shows each press with its button number. These should match the game's: binding a
 button in Star Citizen shows the same number (`js3_button21` is button 21).
 
-On Linux the keys and mouse movement go through a virtual keyboard and mouse, which needs permission to
-use `/dev/uinput`. If the app says it does not have it, it shows a one-line command to fix that; run it in a
-terminal and restart the computer.
+**Mouse speed** and **Scroll speed** set how fast held mouse and scroll mappings go. A tap on a scroll
+mapping turns the wheel one click; held, it scrolls smoothly.
+
+On Windows the sticks are read with Raw Input, which works while the game has the focus, and keys are sent
+as scan codes. On Linux the keys and mouse movement go through a virtual keyboard and mouse, which needs
+permission to use `/dev/uinput`. If the app says it does not have it, it shows a one-line command to fix
+that; run it in a terminal and restart the computer.
 
 ## Command line
 

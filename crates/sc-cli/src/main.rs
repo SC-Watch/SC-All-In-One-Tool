@@ -243,7 +243,11 @@ fn follow(runner: &sc_core::keyemu::Runner, intro: &str) -> Result<()> {
         anyhow::bail!("{e}");
     }
     if status.sticks.is_empty() {
-        println!("No sticks found. If they are plugged in, your user may not be allowed to read them.");
+        if cfg!(windows) {
+            println!("No sticks found. Check they are plugged in.");
+        } else {
+            println!("No sticks found. If they are plugged in, your user may not be allowed to read them.");
+        }
     }
     for s in &status.sticks {
         let used = match s.profile_stick {
