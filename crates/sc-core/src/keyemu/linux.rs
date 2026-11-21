@@ -25,6 +25,7 @@ const ABS_HAT3Y: u16 = 0x17;
 const REL_X: u16 = 0x00;
 const REL_Y: u16 = 0x01;
 const REL_WHEEL: u16 = 0x08;
+const REL_WHEEL_HI_RES: u16 = 0x0b;
 
 const VIRTUAL_PREFIX: &str = "SC All-In-One";
 const TICK: Duration = Duration::from_millis(8);
@@ -55,7 +56,12 @@ pub fn prepare(send: bool) -> Result<Ready> {
         buttons.insert(b);
     }
     let mut axes = AttributeSet::<RelativeAxisCode>::new();
-    for a in [RelativeAxisCode::REL_X, RelativeAxisCode::REL_Y, RelativeAxisCode::REL_WHEEL] {
+    for a in [
+        RelativeAxisCode::REL_X,
+        RelativeAxisCode::REL_Y,
+        RelativeAxisCode::REL_WHEEL,
+        RelativeAxisCode::REL_WHEEL_HI_RES,
+    ] {
         axes.insert(a);
     }
     let mouse = VirtualDevice::builder()
@@ -268,7 +274,10 @@ fn send(ready: &mut Ready, out: &[Output]) -> std::io::Result<()> {
                 *rel.entry(REL_X).or_default() += dx;
                 *rel.entry(REL_Y).or_default() += dy;
             }
-            Output::Wheel(n) => *rel.entry(REL_WHEEL).or_default() += n,
+            Output::Wheel { hi_res, clicks } => {
+                *rel.entry(REL_WHEEL_HI_RES).or_default() += hi_res;
+                *rel.entry(REL_WHEEL).or_default() += clicks;
+            }
         }
     }
     if let Some(kb) = ready.keyboard.as_mut() {

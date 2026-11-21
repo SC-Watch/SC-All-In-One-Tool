@@ -2,7 +2,7 @@
 //! platform code, so it can be tested on its own. The platform side feeds it
 //! events and a clock, and sends what comes out.
 
-use crate::keymap::{Action, HatDir, Input, KeyProfile};
+use crate::keymap::{Action, HatDir, Input, KeyProfile, wheel_percent};
 use crate::keys::Key;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Duration;
@@ -17,17 +17,27 @@ pub enum Output {
         dx: i32,
         dy: i32,
     },
-    /// Wheel notches; positive scrolls up.
-    Wheel(i32),
+    /// Mouse wheel; positive scrolls up. `hi_res` is in 1/120ths of a click
+    /// (Windows' wheel units, and Linux's high-resolution ones), for smooth
+    /// scrolling; `clicks` is how many whole clicks that completes, for
+    /// programs that only understand whole clicks.
+    Wheel {
+        hi_res: i32,
+        clicks: i32,
+    },
 }
 
-/// After a wheel mapping first fires, wait this long, then repeat.
-const WHEEL_DELAY: Duration = Duration::from_millis(350);
-const WHEEL_REPEAT: Duration = Duration::from_millis(90);
+/// One wheel click in high-resolution units.
+pub const WHEEL_CLICK: i32 = 120;
+
+/// A tap on a scroll mapping turns the wheel one click. Held longer than
+/// this, it scrolls smoothly at the profile's scroll speed.
+const WHEEL_DELAY: Duration = Duration::from_millis(200);
 
 struct Held {
     action: Action,
-    next_wheel: Duration,
+    /// When smooth scrolling starts, for wheel mappings.
+    wheel_from: Duration,
 }
 
 pub struct Mapper {
@@ -38,6 +48,11 @@ pub struct Mapper {
     hats: HashMap<(usize, u8), BTreeSet<Input>>,
     mouse_speed: f32,
     carry: (f32, f32),
+    wheel_speed: f32,
+    /// Fraction of a high-resolution wheel unit not yet sent.
+    wheel_carry: f32,
+    /// High-resolution units sent that do not yet make a whole click.
+    wheel_part: i32,
     last_tick: Option<Duration>,
 }
 
@@ -56,6 +71,9 @@ impl Mapper {
             hats: HashMap::new(),
             mouse_speed: profile.mouse_speed.max(0.0),
             carry: (0.0, 0.0),
+            wheel_speed: profile.wheel_speed.max(0.0),
+            wheel_carry: 0.0,
+            wheel_part: 0,
             last_tick: None,
         }
     }
@@ -111,11 +129,24 @@ impl Mapper {
                     }
                 }
             }
-            Action::Wheel { amount } => out.push(Output::Wheel(amount.signum())),
+            Action::Wheel { amount } => {
+                // A tap is always exactly one click, whatever is left over.
+                let dir = wheel_percent(*amount).signum();
+                self.wheel_carry = 0.0;
+                self.wheel_part = 0;
+                out.push(Output::Wheel { hi_res: dir * WHEEL_CLICK, clicks: dir });
+            }
             Action::Mouse { .. } => {}
         }
-        self.held.insert((stick, input), Held { action, next_wheel: now + WHEEL_DELAY });
+        self.held.insert((stick, input), Held { action, wheel_from: now + WHEEL_DELAY });
         out
+    }
+
+    fn wheel_output(&mut self, hi_res: i32) -> Output {
+        self.wheel_part += hi_res;
+        let clicks = self.wheel_part / WHEEL_CLICK;
+        self.wheel_part -= clicks * WHEEL_CLICK;
+        Output::Wheel { hi_res, clicks }
     }
 
     fn release(&mut self, stick: usize, input: Input) -> Vec<Output> {
@@ -136,28 +167,40 @@ impl Mapper {
     }
 
     /// Call regularly (every 10 ms or so): moves the mouse for held mouse
-    /// mappings and repeats held wheel mappings.
+    /// mappings and scrolls for held wheel mappings.
     pub fn tick(&mut self, now: Duration) -> Vec<Output> {
-        let dt =
-            self.last_tick.map_or(Duration::ZERO, |t| now.saturating_sub(t)).min(Duration::from_millis(100));
+        let last = self.last_tick.unwrap_or(now).max(now.saturating_sub(Duration::from_millis(100)));
+        let dt = now.saturating_sub(last);
         self.last_tick = Some(now);
         let mut out = Vec::new();
 
         let (mut vx, mut vy) = (0.0f32, 0.0f32);
-        for held in self.held.values_mut() {
+        let mut wheel = 0.0f32; // high-resolution units to add
+        let mut wheel_held = false;
+        for held in self.held.values() {
             match held.action {
                 Action::Mouse { dx, dy } => {
                     vx += dx as f32 / 100.0;
                     vy += dy as f32 / 100.0;
                 }
                 Action::Wheel { amount } => {
-                    while held.next_wheel <= now {
-                        out.push(Output::Wheel(amount.signum()));
-                        held.next_wheel += WHEEL_REPEAT;
-                    }
+                    wheel_held = true;
+                    let active = now.saturating_sub(last.max(held.wheel_from));
+                    let rate = self.wheel_speed * wheel_percent(amount) as f32 / 100.0 * WHEEL_CLICK as f32;
+                    wheel += rate * active.as_secs_f32();
                 }
                 Action::Keys { .. } => {}
             }
+        }
+        if wheel_held {
+            self.wheel_carry += wheel;
+            let hi_res = self.wheel_carry.trunc();
+            self.wheel_carry -= hi_res;
+            if hi_res != 0.0 {
+                out.push(self.wheel_output(hi_res as i32));
+            }
+        } else {
+            self.wheel_carry = 0.0;
         }
         if vx != 0.0 || vy != 0.0 {
             let secs = dt.as_secs_f32();
@@ -217,6 +260,7 @@ mod tests {
                 Mapping { input: Input::Button { number: 5 }, action: keys("RCtrl+R") },
                 Mapping { input: Input::Button { number: 6 }, action: keys("RCtrl") },
                 Mapping { input: Input::Button { number: 21 }, action: Action::Wheel { amount: 1 } },
+                Mapping { input: Input::Button { number: 23 }, action: Action::Wheel { amount: -50 } },
                 Mapping {
                     input: Input::Hat { hat: 1, direction: HatDir::Up },
                     action: Action::Mouse { dx: 0, dy: -100 },
@@ -267,15 +311,61 @@ mod tests {
         assert_eq!(m.tick(ms(35)), vec![]);
     }
 
+    /// Total (hi_res, clicks) sent while a wheel button is held for `hold`,
+    /// ticking every 8 ms as the platforms do.
+    fn scroll(m: &mut Mapper, button: u16, hold: u64) -> (i32, i32) {
+        let mut out = m.button(0, button, true, ms(0));
+        m.tick(ms(0));
+        for t in (8..=hold).step_by(8) {
+            out.extend(m.tick(ms(t)));
+        }
+        out.extend(m.button(0, button, false, ms(hold)));
+        out.iter().fold((0, 0), |(h, c), o| match o {
+            Output::Wheel { hi_res, clicks } => (h + hi_res, c + clicks),
+            _ => (h, c),
+        })
+    }
+
     #[test]
-    fn wheel_turns_once_then_repeats() {
+    fn a_tap_is_one_wheel_click() {
         let mut m = Mapper::new(&profile());
-        assert_eq!(m.button(0, 21, true, ms(0)), vec![Output::Wheel(1)]);
-        assert_eq!(m.tick(ms(100)), vec![]);
-        assert_eq!(m.tick(ms(350)), vec![Output::Wheel(1)]);
-        assert_eq!(m.tick(ms(530)), vec![Output::Wheel(1), Output::Wheel(1)]);
-        m.button(0, 21, false, ms(540));
+        assert_eq!(m.button(0, 21, true, ms(0)), vec![Output::Wheel { hi_res: 120, clicks: 1 }]);
+        m.tick(ms(0));
+        assert_eq!(m.tick(ms(100)), vec![], "nothing more before the delay");
+        m.button(0, 21, false, ms(150));
         assert_eq!(m.tick(ms(1000)), vec![]);
+        assert_eq!(scroll(&mut m, 21, 150), (120, 1));
+    }
+
+    #[test]
+    fn holding_scrolls_smoothly_at_the_set_speed() {
+        // 20 clicks a second (the default) for the 0.8 s after the delay,
+        // plus the first click: 17 clicks, sent as small steps.
+        let mut m = Mapper::new(&profile());
+        let (hi_res, clicks) = scroll(&mut m, 21, 1000);
+        assert!((2030..=2040).contains(&hi_res), "{hi_res}");
+        assert!((16..=17).contains(&clicks), "{clicks}");
+
+        let mut m = Mapper::new(&profile());
+        m.button(0, 21, true, ms(0));
+        m.tick(ms(200));
+        let step = m.tick(ms(208));
+        assert!(
+            matches!(step[..], [Output::Wheel { hi_res: 18..=19, clicks: 0 }]),
+            "steps of a fraction of a click every tick: {step:?}"
+        );
+    }
+
+    #[test]
+    fn scroll_speed_and_share_apply() {
+        let mut p = profile();
+        p.wheel_speed = 40.0;
+        let mut m = Mapper::new(&p);
+        let (_, clicks) = scroll(&mut m, 21, 1000);
+        assert!((32..=33).contains(&clicks), "twice as fast: {clicks}");
+        // Button 23 scrolls down at 50% of 40: one click, then 20 a second.
+        let (hi_res, clicks) = scroll(&mut m, 23, 1000);
+        assert!(hi_res < 0 && (-17..=-16).contains(&clicks), "{hi_res} {clicks}");
     }
 
     #[test]

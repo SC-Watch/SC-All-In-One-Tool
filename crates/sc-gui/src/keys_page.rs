@@ -79,7 +79,7 @@ impl NewMapping {
                 let (x, y) = dir_vector(self.mouse);
                 Action::Mouse { dx: x * 100, dy: y * 100 }
             }
-            ActionKind::Wheel => Action::Wheel { amount: if self.wheel_up { 1 } else { -1 } },
+            ActionKind::Wheel => Action::Wheel { amount: if self.wheel_up { 100 } else { -100 } },
         };
         Ok(Mapping { input, action })
     }
@@ -135,6 +135,7 @@ enum Do {
     Add,
     CancelAdd,
     MouseSpeed(f32),
+    WheelSpeed(f32),
     Autostart(bool),
     Copied,
 }
@@ -348,7 +349,10 @@ impl App {
                 {
                     todo.push(Do::Autostart(auto));
                 }
-                ui.add_space(24.0);
+            });
+            ui.add_space(4.0);
+            egui::Grid::new("speeds").num_columns(2).spacing(Vec2::new(16.0, 6.0)).show(ui, |ui| {
+                ui.spacing_mut().slider_width = 220.0;
                 ui.label(weak("Mouse speed"));
                 let mut speed = profile.mouse_speed;
                 let r = ui.add(egui::Slider::new(&mut speed, 100.0..=3000.0).suffix(" px/s").step_by(50.0));
@@ -357,6 +361,23 @@ impl App {
                 } else if r.changed() {
                     self.keys.profiles[i].mouse_speed = speed;
                 }
+                ui.end_row();
+                ui.label(weak("Scroll speed")).on_hover_text(
+                    "Wheel clicks per second while a scroll button is held. A tap always scrolls one click.",
+                );
+                let mut wheel = profile.wheel_speed;
+                let r = ui.add(
+                    egui::Slider::new(&mut wheel, 2.0..=60.0)
+                        .suffix(" clicks/s")
+                        .step_by(1.0)
+                        .fixed_decimals(0),
+                );
+                if r.drag_stopped() || (r.changed() && !r.dragged()) {
+                    todo.push(Do::WheelSpeed(wheel));
+                } else if r.changed() {
+                    self.keys.profiles[i].wheel_speed = wheel;
+                }
+                ui.end_row();
             });
         });
         ui.add_space(16.0);
@@ -667,6 +688,12 @@ impl App {
                                 f.error = Some(e);
                             }
                         }
+                    }
+                }
+                Do::WheelSpeed(speed) => {
+                    if let Some(i) = current {
+                        self.keys.profiles[i].wheel_speed = speed;
+                        self.save_keymap(i);
                     }
                 }
                 Do::MouseSpeed(speed) => {

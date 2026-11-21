@@ -106,8 +106,16 @@ pub enum Action {
     /// Move the mouse while held; `dx`/`dy` from -100 to 100, as a share of
     /// the profile's mouse speed. `dy` is negative for up.
     Mouse { dx: i32, dy: i32 },
-    /// Turn the mouse wheel, repeating while held: positive scrolls up.
+    /// Turn the mouse wheel: one click at once, then smoothly while held.
+    /// `amount` from -100 to 100 is a share of the profile's scroll speed;
+    /// positive scrolls up.
     Wheel { amount: i32 },
+}
+
+/// A wheel mapping's share of the scroll speed, in percent (signed). The
+/// first test builds saved `1` and `-1` for up and down; those mean 100%.
+pub fn wheel_percent(amount: i32) -> i32 {
+    if amount.abs() == 1 { amount * 100 } else { amount.clamp(-100, 100) }
 }
 
 impl Action {
@@ -133,8 +141,15 @@ impl Action {
                     format!("Move mouse {dir} ({speed}%)")
                 }
             }
-            Action::Wheel { amount } if *amount > 0 => "Scroll up".into(),
-            Action::Wheel { .. } => "Scroll down".into(),
+            Action::Wheel { amount } => {
+                let pct = wheel_percent(*amount);
+                let dir = if pct > 0 { "up" } else { "down" };
+                if pct.abs() == 100 {
+                    format!("Scroll {dir}")
+                } else {
+                    format!("Scroll {dir} ({}%)", pct.abs())
+                }
+            }
         }
     }
 }
@@ -169,9 +184,15 @@ impl Stick {
 }
 
 pub const DEFAULT_MOUSE_SPEED: f32 = 600.0;
+/// Wheel clicks per second while a scroll mapping is held, at 100%.
+pub const DEFAULT_WHEEL_SPEED: f32 = 20.0;
 
 fn default_mouse_speed() -> f32 {
     DEFAULT_MOUSE_SPEED
+}
+
+fn default_wheel_speed() -> f32 {
+    DEFAULT_WHEEL_SPEED
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -180,13 +201,21 @@ pub struct KeyProfile {
     /// Pixels per second when a mouse mapping is at 100.
     #[serde(default = "default_mouse_speed")]
     pub mouse_speed: f32,
+    /// Wheel clicks per second when a scroll mapping is held, at 100%.
+    #[serde(default = "default_wheel_speed")]
+    pub wheel_speed: f32,
     #[serde(default, rename = "stick")]
     pub sticks: Vec<Stick>,
 }
 
 impl KeyProfile {
     pub fn new(name: &str) -> Self {
-        KeyProfile { name: name.trim().to_string(), mouse_speed: DEFAULT_MOUSE_SPEED, sticks: Vec::new() }
+        KeyProfile {
+            name: name.trim().to_string(),
+            mouse_speed: DEFAULT_MOUSE_SPEED,
+            wheel_speed: DEFAULT_WHEEL_SPEED,
+            sticks: Vec::new(),
+        }
     }
 
     pub fn mapping_count(&self) -> usize {
@@ -342,7 +371,8 @@ pub fn import_joytokey(name: &str, raw: &str) -> Result<Import> {
                 let num = |i: usize| fields.get(i).and_then(|f| f.parse::<i32>().ok()).unwrap_or(0);
                 let (dx, dy, wheel) = (num(1), num(2), num(3));
                 if wheel != 0 {
-                    Action::Wheel { amount: wheel.signum() }
+                    // JoyToKey's wheel value is its speed; 100 is full speed.
+                    Action::Wheel { amount: wheel.clamp(-100, 100) }
                 } else if dx != 0 || dy != 0 {
                     Action::Mouse { dx: dx.clamp(-100, 100), dy: dy.clamp(-100, 100) }
                 } else {
